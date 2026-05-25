@@ -22,9 +22,6 @@ public record WeatherDashboard(
             Integer visibility,
             Integer aqi,
             Integer totalCloud,
-            Integer highCloud,
-            Integer midCloud,
-            Integer lowCloud,
             Double precipitationProbability
     ) {}
 

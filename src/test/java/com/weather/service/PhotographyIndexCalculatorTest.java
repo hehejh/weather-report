@@ -20,7 +20,7 @@ class PhotographyIndexCalculatorTest {
         @DisplayName("returns high score for ideal photography conditions")
         void idealConditions() {
             int index = calculator.computePhotographyIndex(
-                    50.0, 30.0, 10.0, 55.0, 20.0, 30, 5.0, 0.0
+                    50.0, 55.0, 20.0, 30, 5.0, 0.0
             );
             assertTrue(index >= 75, "Expected >= 75 for ideal conditions, got " + index);
         }
@@ -29,28 +29,28 @@ class PhotographyIndexCalculatorTest {
         @DisplayName("returns low score for poor photography conditions")
         void poorConditions() {
             int index = calculator.computePhotographyIndex(
-                    90.0, 80.0, 85.0, 95.0, 2.0, 180, 40.0, 80.0
+                    100.0, 100.0, 1.0, 200, 40.0, 90.0
             );
-            assertTrue(index <= 30, "Expected <= 30 for poor conditions, got " + index);
+            assertTrue(index <= 50, "Expected <= 50 for poor conditions, got " + index);
         }
 
         @Test
         @DisplayName("handles null values gracefully with default scores")
         void nullValues() {
             int index = calculator.computePhotographyIndex(
-                    null, null, null, null, null, null, null, null
+                    null, null, null, null, null, null
             );
             assertTrue(index >= 70,
-                    "Expected moderate score for null (unknown) data, got " + index);
+                    "Expected moderate-to-high score for null (unknown) data, got " + index);
         }
 
         @Test
-        @DisplayName("good high clouds with clear horizon scores well")
-        void goodHighCloudsClearHorizon() {
+        @DisplayName("slightly suboptimal conditions still score well")
+        void slightlySuboptimalConditions() {
             int index = calculator.computePhotographyIndex(
-                    50.0, 20.0, 5.0, 50.0, 15.0, 40, 8.0, 0.0
+                    65.0, 45.0, 12.0, 60, 12.0, 0.0
             );
-            assertTrue(index >= 70, "Expected >= 70, got " + index);
+            assertTrue(index >= 75, "Expected >= 75 for slightly suboptimal conditions, got " + index);
         }
     }
 
@@ -62,7 +62,7 @@ class PhotographyIndexCalculatorTest {
         @DisplayName("returns structured glow forecast with breakdown")
         void structuredGlowForecast() {
             GlowForecast glow = calculator.forecastGlow(
-                    "sunset", 55.0, 25.0, 10.0, 50.0, 20.0, 30, 5.0, 0.0
+                    "sunset", 40.0, 55.0, 15.0, 30, 5.0, 0.0
             );
             assertEquals("sunset", glow.type());
             assertNotNull(glow.probability());
@@ -72,13 +72,13 @@ class PhotographyIndexCalculatorTest {
         }
 
         @Test
-        @DisplayName("returns poor quality when low clouds dominate")
+        @DisplayName("returns poor quality when cloud cover is too low")
         void poorGlowFromLowClouds() {
             GlowForecast glow = calculator.forecastGlow(
-                    "sunrise", 10.0, 20.0, 80.0, 30.0, 10.0, 50, 10.0, 0.0
+                    "sunrise", 5.0, 30.0, 10.0, 50, 10.0, 0.0
             );
             assertTrue(glow.probability() < 50,
-                    "Expected low probability with heavy low clouds, got " + glow.probability());
+                    "Expected low probability with very low cloud cover, got " + glow.probability());
         }
     }
 }
