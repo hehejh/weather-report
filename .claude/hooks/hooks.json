@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const d=require('fs').readFileSync(0,'utf8');const m=d.match(/api[_-]?key|secret|password|token\\s*[:=]\\s*['\\\"][^'\\\"]{8,}/gi);if(m){console.error('[SECURITY] Hardcoded secret detected:',m.join(', '));process.exit(2)}console.log(d)\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mvn test -q 2>&1 | tail -5"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mvn verify -q 2>&1 | tail -10"
+          }
+        ]
+      }
+    ]
+  }
+}

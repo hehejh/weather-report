@@ -1,0 +1,8 @@
+{
+  "name": "weather",
+  "private": true,
+  "scripts": {
+    "test": "mvn test --batch-mode",
+    "verify": "mvn verify --batch-mode"
+  }
+}
