@@ -27,4 +27,6 @@ jobs:
         run: mvn test --batch-mode
 
       - name: Verify coverage (80% minimum)
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: mvn verify --batch-mode

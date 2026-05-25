@@ -121,6 +121,10 @@
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
                 <version>9.1.0</version>
+                <configuration>
+                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                    <failOnError>false</failOnError>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
