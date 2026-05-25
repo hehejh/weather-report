@@ -1,6 +1,10 @@
 spring:
   application:
     name: photo-weather-assistant
+  task:
+    scheduling:
+      pool:
+        size: 2
   datasource:
     url: jdbc:postgresql://localhost:5432/weather
     username: ${DB_USERNAME:weather}

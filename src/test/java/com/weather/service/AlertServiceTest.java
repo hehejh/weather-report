@@ -1,9 +1,14 @@
 package com.weather.service;
 
 import com.weather.dto.AlertRuleRequest;
+import com.weather.dto.WeatherDashboard;
+import com.weather.dto.WeatherDashboard.CurrentWeather;
+import com.weather.dto.WeatherDashboard.GlowForecast;
 import com.weather.exception.SpotNotFoundException;
+import com.weather.model.AlertHistory;
 import com.weather.model.AlertRule;
 import com.weather.model.PhotoSpot;
+import com.weather.repository.AlertHistoryRepository;
 import com.weather.repository.AlertRuleRepository;
 import com.weather.repository.PhotoSpotRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +23,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -29,6 +35,9 @@ class AlertServiceTest {
     private AlertService alertService;
     private AlertRuleRepository alertRuleRepository;
     private PhotoSpotRepository spotRepository;
+    private AlertHistoryRepository alertHistoryRepository;
+    private WeatherService weatherService;
+    private NotificationService notificationService;
 
     private static final GeometryFactory GF = new GeometryFactory();
 
@@ -36,7 +45,11 @@ class AlertServiceTest {
     void setUp() {
         alertRuleRepository = mock(AlertRuleRepository.class);
         spotRepository = mock(PhotoSpotRepository.class);
-        alertService = new AlertService(alertRuleRepository, spotRepository);
+        alertHistoryRepository = mock(AlertHistoryRepository.class);
+        weatherService = mock(WeatherService.class);
+        notificationService = mock(NotificationService.class);
+        alertService = new AlertService(alertRuleRepository, spotRepository,
+                alertHistoryRepository, weatherService, notificationService);
     }
 
     @Test
@@ -142,5 +155,203 @@ class AlertServiceTest {
         when(alertRuleRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThrows(SpotNotFoundException.class, () -> alertService.getById(99L));
+    }
+
+    // evaluateAndRecord tests
+
+    @Test
+    @DisplayName("evaluateAndRecord returns null when glow probability below threshold")
+    void evaluateAndRecord_lowGlowProbability_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{\"glow_probability\":80}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 40, "poor", null);
+        var dashboard = new WeatherDashboard(1L, "Test", 50, "fair", null, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord triggers when all thresholds pass")
+    void evaluateAndRecord_allPassed_recordsHistory() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60,\"max_cloud\":30,\"max_wind\":15}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(20.0, 18.0, 50, 5.0, "N", 10, 50, 20, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNotNull(result);
+        assertEquals(1L, result.getRuleId());
+        assertEquals(1L, result.getSpotId());
+        assertEquals(85, result.getScore());
+        verify(alertHistoryRepository).save(any());
+        verify(notificationService).buildPayload(any(), any(), any(Integer.class), any(String.class));
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord returns null when cloud exceeds max")
+    void evaluateAndRecord_cloudExceedsMax_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60,\"max_cloud\":30}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(20.0, 18.0, 50, 5.0, "N", 10, 50, 50, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord returns null when wind exceeds max")
+    void evaluateAndRecord_windExceedsMax_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60,\"max_wind\":10}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(20.0, 18.0, 50, 15.0, "N", 10, 50, 20, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord returns null when visibility below min")
+    void evaluateAndRecord_visibilityBelowMin_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60,\"min_visibility\":10}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(20.0, 18.0, 50, 5.0, "N", 5, 50, 20, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord returns null when temp below min")
+    void evaluateAndRecord_tempBelowMin_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60,\"min_temp\":10}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(5.0, 3.0, 50, 5.0, "N", 10, 50, 20, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord returns null when temp above max")
+    void evaluateAndRecord_tempAboveMax_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60,\"max_temp\":30}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(35.0, 33.0, 50, 5.0, "N", 10, 50, 20, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord handles null current weather gracefully")
+    void evaluateAndRecord_nullCurrent_recordsWhenGlowPasses() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{\"glow_probability\":60}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", null, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNotNull(result);
+        verify(alertHistoryRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord handles null glow gracefully")
+    void evaluateAndRecord_nullGlow_returnsNull() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var dashboard = new WeatherDashboard(1L, "Test", 50, "fair", null, null, null, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord handles empty thresholds JSON")
+    void evaluateAndRecord_emptyThresholds_recordsWhenGlowPasses() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var current = new CurrentWeather(20.0, 18.0, 50, 5.0, "N", 10, 50, 20, null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNotNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord uses default glow threshold of 60")
+    void evaluateAndRecord_defaultGlowThreshold_uses60() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        // probability 59 < default 60 — should not trigger
+        var glow = new GlowForecast("sunset", 59, "poor", null);
+        var dashboard = new WeatherDashboard(1L, "Test", 50, "fair", null, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNull(result);
     }
 }

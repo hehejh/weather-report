@@ -2,8 +2,10 @@ package com.weather.controller;
 
 import com.weather.dto.AlertRuleRequest;
 import com.weather.exception.SpotNotFoundException;
+import com.weather.model.AlertHistory;
 import com.weather.model.AlertRule;
 import com.weather.model.PhotoSpot;
+import com.weather.repository.AlertHistoryRepository;
 import com.weather.service.AlertService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,13 +34,15 @@ class AlertControllerTest {
 
     private MockMvc mockMvc;
     private AlertService alertService;
+    private AlertHistoryRepository alertHistoryRepository;
 
     private static final GeometryFactory GF = new GeometryFactory();
 
     @BeforeEach
     void setUp() {
         alertService = mock(AlertService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new AlertController(alertService))
+        alertHistoryRepository = mock(AlertHistoryRepository.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new AlertController(alertService, alertHistoryRepository))
                 .setControllerAdvice(new com.weather.advice.GlobalExceptionHandler())
                 .build();
     }
@@ -115,6 +119,76 @@ class AlertControllerTest {
         when(alertService.getById(99L)).thenThrow(new SpotNotFoundException(99L));
 
         mockMvc.perform(get("/api/alerts/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/alerts/{id}/history returns trigger history")
+    void listHistory_returnsHistory() throws Exception {
+        var history1 = new AlertHistory(1L, 1L, 80);
+        var history2 = new AlertHistory(1L, 1L, 85);
+        when(alertHistoryRepository.findByRuleIdOrderByTriggeredAtDesc(1L))
+                .thenReturn(List.of(history2, history1));
+
+        mockMvc.perform(get("/api/alerts/1/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("GET /api/alerts/{id}/history returns empty list when no history")
+    void listHistory_empty_returnsEmptyList() throws Exception {
+        when(alertHistoryRepository.findByRuleIdOrderByTriggeredAtDesc(1L))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/alerts/1/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("POST /api/alerts/{id}/test triggers evaluation and returns result")
+    void testTrigger_valid_returnsResult() throws Exception {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
+        rule.setId(1L);
+        var history = new AlertHistory(1L, 1L, 85);
+
+        when(alertService.getById(1L)).thenReturn(rule);
+        when(alertService.evaluateAndRecord(rule)).thenReturn(history);
+
+        mockMvc.perform(post("/api/alerts/1/test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.score").value(85));
+    }
+
+    @Test
+    @DisplayName("POST /api/alerts/{id}/test returns null data when not triggered")
+    void testTrigger_notTriggered_returnsNullData() throws Exception {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        when(alertService.getById(1L)).thenReturn(rule);
+        when(alertService.evaluateAndRecord(rule)).thenReturn(null);
+
+        mockMvc.perform(post("/api/alerts/1/test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/alerts/{id}/test returns 404 for unknown alert")
+    void testTrigger_notFound_returns404() throws Exception {
+        when(alertService.getById(99L)).thenThrow(new SpotNotFoundException(99L));
+
+        mockMvc.perform(post("/api/alerts/99/test"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false));
     }

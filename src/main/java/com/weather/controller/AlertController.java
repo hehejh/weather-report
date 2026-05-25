@@ -2,7 +2,9 @@ package com.weather.controller;
 
 import com.weather.dto.AlertRuleRequest;
 import com.weather.dto.ApiResponse;
+import com.weather.model.AlertHistory;
 import com.weather.model.AlertRule;
+import com.weather.repository.AlertHistoryRepository;
 import com.weather.service.AlertService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,9 +25,12 @@ import java.util.List;
 public class AlertController {
 
     private final AlertService alertService;
+    private final AlertHistoryRepository alertHistoryRepository;
 
-    public AlertController(AlertService alertService) {
+    public AlertController(AlertService alertService,
+                          AlertHistoryRepository alertHistoryRepository) {
         this.alertService = alertService;
+        this.alertHistoryRepository = alertHistoryRepository;
     }
 
     @GetMapping("/spots/{spotId}/alerts")
@@ -55,5 +60,18 @@ public class AlertController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteAlert(@PathVariable Long id) {
         alertService.delete(id);
+    }
+
+    @GetMapping("/alerts/{id}/history")
+    public ApiResponse<List<AlertHistory>> listHistory(@PathVariable Long id) {
+        return ApiResponse.ok(alertHistoryRepository.findByRuleIdOrderByTriggeredAtDesc(id));
+    }
+
+    @PostMapping("/alerts/{id}/test")
+    public ApiResponse<AlertHistory> testTrigger(@PathVariable Long id) {
+        var rule = alertService.getById(id);
+        var result = alertService.evaluateAndRecord(rule);
+        return result != null ? ApiResponse.ok(result)
+                : ApiResponse.ok(null);
     }
 }
