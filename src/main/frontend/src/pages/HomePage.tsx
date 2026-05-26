@@ -1,8 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import MapView from '../components/MapView';
 import { useGeolocation } from '../hooks/useGeolocation';
-import { listSpots, createSpot } from '../api/spots';
+import { listSpots, createSpot, deleteSpot } from '../api/spots';
 import type { PhotoSpot, PhotoSpotRequest, MapBounds } from '../types';
 import { getPhotoIndexColor } from '../utils/photoIndexColor';
 
@@ -32,6 +32,23 @@ export default function HomePage() {
     setShowAddForm(true);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadAllSpots = async () => {
+      setLoading(true);
+      try {
+        const data = await listSpots();
+        if (!cancelled) setSpots(data);
+      } catch {
+        // silently fail — map still works without spots
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadAllSpots();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleAddSpot = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSpotPos || !formData.name.trim()) return;
@@ -54,6 +71,16 @@ export default function HomePage() {
       setNewSpotPos(null);
     } catch (err) {
       // handle error
+    }
+  };
+
+  const handleDeleteSpot = async (id: number) => {
+    try {
+      await deleteSpot(id);
+      setSpots((prev) => prev.filter((s) => s.id !== id));
+      if (selectedSpotId === id) setSelectedSpotId(null);
+    } catch {
+      // silently fail
     }
   };
 
@@ -101,24 +128,36 @@ export default function HomePage() {
               {sortedSpots.map((spot) => {
                 const { bg, text, label } = getPhotoIndexColor(spot.photographyIndex);
                 return (
-                  <Link
-                    key={spot.id}
-                    to={`/spot/${spot.id}`}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-surface-card
-                               border border-white/5 hover:border-white/10 transition-colors"
-                    onClick={() => setSelectedSpotId(spot.id)}
-                  >
-                    <div className={`index-badge text-xs ${bg} ${text} min-w-[56px] justify-center`}>
-                      {spot.photographyIndex ?? '?'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{spot.name}</p>
-                      <p className="text-xs text-text-muted">
-                        {spot.latitude.toFixed(4)}, {spot.longitude.toFixed(4)}
-                      </p>
-                    </div>
-                    <span className={`text-xs font-medium ${text}`}>{label}</span>
-                  </Link>
+                  <div key={spot.id} className="group flex items-center">
+                    <Link
+                      to={`/spot/${spot.id}`}
+                      className="flex items-center gap-3 p-3 rounded-xl bg-surface-card flex-1
+                                 border border-white/5 hover:border-white/10 transition-colors"
+                      onClick={() => setSelectedSpotId(spot.id)}
+                    >
+                      <div className={`index-badge text-xs ${bg} ${text} min-w-[56px] justify-center`}>
+                        {spot.photographyIndex ?? '?'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{spot.name}</p>
+                        <p className="text-xs text-text-muted">
+                          {spot.latitude.toFixed(4)}, {spot.longitude.toFixed(4)}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-medium ${text}`}>{label}</span>
+                    </Link>
+                    <button
+                      onClick={(e) => { e.preventDefault(); handleDeleteSpot(spot.id); }}
+                      className="ml-1 p-1.5 rounded-lg text-text-muted hover:text-red-400 hover:bg-red-400/10
+                                 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                      title="删除拍摄点"
+                      aria-label={`删除 ${spot.name}`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
                 );
               })}
             </div>

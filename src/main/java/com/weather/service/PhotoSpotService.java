@@ -84,6 +84,7 @@ public class PhotoSpotService {
                 new Coordinate(swLng, neLat),
                 new Coordinate(swLng, swLat)
         });
+        envelope.setSRID(4326);
         return spotRepository.findByUserIdWithinBounds(userId, envelope).stream()
                 .map(PhotoSpotResponse::from)
                 .toList();

@@ -1,1 +1,1 @@
-ALTER TABLE alert_rules ADD COLUMN recipient_email VARCHAR(255);
+ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS recipient_email VARCHAR(255);

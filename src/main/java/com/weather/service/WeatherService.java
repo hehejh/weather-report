@@ -8,6 +8,8 @@ import com.weather.dto.WeatherDashboard.CurrentWeather;
 import com.weather.dto.WeatherDashboard.DailyForecast;
 import com.weather.dto.WeatherDashboard.GlowForecast;
 import com.weather.model.PhotoSpot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +26,8 @@ import java.util.List;
  */
 @Service
 public class WeatherService {
+
+    private static final Logger log = LoggerFactory.getLogger(WeatherService.class);
 
     private final QWeatherClient qWeatherClient;
     private final PhotographyIndexCalculator indexCalculator;
@@ -50,7 +54,7 @@ public class WeatherService {
 
         var nowWeather = qWeatherClient.getNowWeather(location);
         var dailyWeather = qWeatherClient.get7DayForecast(location);
-        var airNow = qWeatherClient.getAirNow(location);
+        var airNow = getAirNowSafe(location);
         var solar = sunCalcService.calculateSolarTimes(
                 LocalDate.now(zoneId), spot.getLocation().getY(), spot.getLocation().getX(), zoneId);
 
@@ -70,6 +74,19 @@ public class WeatherService {
      * @param point the PostGIS geometry point (Point.getX() = longitude, Point.getY() = latitude)
      * @return formatted location string
      */
+    /**
+     * Fetches air quality data, returning null if the API call fails or the
+     * subscription does not include air quality data.
+     */
+    private AirNow getAirNowSafe(String location) {
+        try {
+            return qWeatherClient.getAirNow(location);
+        } catch (Exception e) {
+            log.warn("Air quality data unavailable: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private String pointToLocation(Point point) {
         return String.format("%.2f,%.2f", point.getX(), point.getY());
     }
