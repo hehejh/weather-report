@@ -1,5 +1,6 @@
 package com.weather.dto;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -13,7 +14,8 @@ public record AlertRuleRequest(
         @Min(0) @Max(100) Integer minVisibility,
         Integer minTemp,
         Integer maxTemp,
-        @NotBlank String pushTime
+        @NotBlank String pushTime,
+        @Email String recipientEmail
 ) {
     public String toThresholdsJson() {
         return String.format(

@@ -2,50 +2,107 @@ package com.weather.service;
 
 import com.weather.model.AlertRule;
 import com.weather.model.PhotoSpot;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.springframework.mail.MailSendException;
+import org.springframework.mail.javamail.JavaMailSender;
 
 import java.time.LocalTime;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class NotificationServiceTest {
 
     private NotificationService notificationService;
+    private JavaMailSender mailSender;
+    private MimeMessage mimeMessage;
     private static final GeometryFactory GF = new GeometryFactory();
 
     @BeforeEach
     void setUp() {
-        notificationService = new NotificationService();
+        mailSender = mock(JavaMailSender.class);
+        notificationService = new NotificationService(mailSender, "from@test.com", "[Test]");
+        var session = Session.getDefaultInstance(new Properties());
+        mimeMessage = new MimeMessage(session);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
     }
 
     @Test
-    @DisplayName("buildPayload returns JSON with spot name and condition")
-    void buildPayload_returnsJsonWithDetails() {
+    @DisplayName("sendAlert sends email when recipient configured")
+    void sendAlert_hasRecipient_sendsEmail() {
         var spot = new PhotoSpot("user", "Tower View", GF.createPoint(new Coordinate(116.4, 39.9)), null);
         spot.setId(1L);
-        var rule = new AlertRule(spot, "sunrise", "{\"glow_probability\":60}", LocalTime.of(20, 0));
+        var rule = new AlertRule(spot, "sunrise", "{}", LocalTime.of(6, 0));
+        rule.setRecipientEmail("user@example.com");
 
-        String payload = notificationService.buildPayload(rule, spot, 78,
-                "明日可能有高质量朝霞（概率 78%），日出 05:23，建议 04:30 到达");
+        boolean result = notificationService.sendAlert(rule, spot, 85,
+                "Good sunrise conditions expected");
 
-        assertNotNull(payload);
-        assertTrue(payload.contains("Tower View"));
-        assertTrue(payload.contains("sunrise"));
-        assertTrue(payload.contains("78"));
+        assertTrue(result);
+        verify(mailSender).send(any(MimeMessage.class));
     }
 
     @Test
-    @DisplayName("buildPayload handles null fields gracefully")
-    void buildPayload_nullFields_doesNotThrow() {
+    @DisplayName("sendAlert skips when no recipient email configured")
+    void sendAlert_noRecipient_skips() {
+        var spot = new PhotoSpot("user", "Tower View", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunrise", "{}", LocalTime.of(6, 0));
+
+        boolean result = notificationService.sendAlert(rule, spot, 85, "summary");
+
+        assertFalse(result);
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("sendAlert skips when recipient email is blank")
+    void sendAlert_blankRecipient_skips() {
+        var spot = new PhotoSpot("user", "Tower View", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunrise", "{}", LocalTime.of(6, 0));
+        rule.setRecipientEmail("   ");
+
+        boolean result = notificationService.sendAlert(rule, spot, 85, "summary");
+
+        assertFalse(result);
+    }
+
+    @Test
+    @DisplayName("sendAlert catches exception and returns false")
+    void sendAlert_mailException_returnsFalse() {
+        var spot = new PhotoSpot("user", "Tower View", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunrise", "{}", LocalTime.of(6, 0));
+        rule.setRecipientEmail("user@example.com");
+        doThrow(new MailSendException("SMTP down")).when(mailSender).send(any(MimeMessage.class));
+
+        boolean result = notificationService.sendAlert(rule, spot, 85, "summary");
+
+        assertFalse(result);
+    }
+
+    @Test
+    @DisplayName("sendAlert handles null fields gracefully")
+    void sendAlert_nullFields_doesNotThrow() {
         var spot = new PhotoSpot("user", null, GF.createPoint(new Coordinate(0.0, 0.0)), null);
         var rule = new AlertRule(spot, null, "{}", null);
+        rule.setRecipientEmail("user@example.com");
 
-        assertDoesNotThrow(() -> notificationService.buildPayload(rule, spot, 50, null));
+        assertDoesNotThrow(() -> notificationService.sendAlert(rule, spot, 50, null));
     }
 }

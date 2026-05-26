@@ -22,13 +22,20 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import org.mockito.ArgumentCaptor;
 
 class AlertServiceTest {
 
@@ -62,7 +69,7 @@ class AlertServiceTest {
         var saved = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
         when(alertRuleRepository.save(any())).thenReturn(saved);
 
-        var request = new AlertRuleRequest("sunset", 60, null, null, null, null, null, "12:00");
+        var request = new AlertRuleRequest("sunset", 60, null, null, null, null, null, "12:00", null);
         var result = alertService.create(1L, request);
 
         assertEquals("sunset", result.getAlertType());
@@ -75,7 +82,7 @@ class AlertServiceTest {
     void create_missingSpot_throws() {
         when(spotRepository.findById(99L)).thenReturn(Optional.empty());
 
-        var request = new AlertRuleRequest("sunset", 60, null, null, null, null, null, "12:00");
+        var request = new AlertRuleRequest("sunset", 60, null, null, null, null, null, "12:00", null);
         assertThrows(SpotNotFoundException.class, () -> alertService.create(99L, request));
     }
 
@@ -103,7 +110,7 @@ class AlertServiceTest {
         var updated = new AlertRule(spot, "sunrise", "{\"glow_probability\":70}", LocalTime.of(6, 0));
         when(alertRuleRepository.save(any())).thenReturn(updated);
 
-        var request = new AlertRuleRequest("sunrise", 70, null, null, null, null, null, "06:00");
+        var request = new AlertRuleRequest("sunrise", 70, null, null, null, null, null, "06:00", null);
         var result = alertService.update(1L, request);
 
         assertEquals("sunrise", result.getAlertType());
@@ -115,7 +122,7 @@ class AlertServiceTest {
     void update_missing_throws() {
         when(alertRuleRepository.findById(99L)).thenReturn(Optional.empty());
 
-        var request = new AlertRuleRequest("sunrise", 70, null, null, null, null, null, "06:00");
+        var request = new AlertRuleRequest("sunrise", 70, null, null, null, null, null, "06:00", null);
         assertThrows(SpotNotFoundException.class, () -> alertService.update(99L, request));
     }
 
@@ -189,13 +196,16 @@ class AlertServiceTest {
         var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
         when(weatherService.getDashboard(spot)).thenReturn(dashboard);
 
+        when(notificationService.sendAlert(any(), any(), anyInt(), anyString())).thenReturn(true);
+
         var result = alertService.evaluateAndRecord(rule);
         assertNotNull(result);
         assertEquals(1L, result.getRuleId());
         assertEquals(1L, result.getSpotId());
         assertEquals(85, result.getScore());
-        verify(alertHistoryRepository).save(any());
-        verify(notificationService).buildPayload(any(), any(), any(Integer.class), any(String.class));
+        assertTrue(result.isSent());
+        verify(alertHistoryRepository, times(2)).save(any());
+        verify(notificationService).sendAlert(any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -299,10 +309,11 @@ class AlertServiceTest {
         var glow = new GlowForecast("sunset", 75, "good", null);
         var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", null, null, glow, List.of());
         when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+        when(notificationService.sendAlert(any(), any(), anyInt(), anyString())).thenReturn(true);
 
         var result = alertService.evaluateAndRecord(rule);
         assertNotNull(result);
-        verify(alertHistoryRepository).save(any());
+        verify(alertHistoryRepository, times(2)).save(any());
     }
 
     @Test
@@ -333,6 +344,7 @@ class AlertServiceTest {
         var current = new CurrentWeather(20.0, 18.0, 50, 5.0, "N", 10, 50, 20, null);
         var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", current, null, glow, List.of());
         when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+        when(notificationService.sendAlert(any(), any(), anyInt(), anyString())).thenReturn(true);
 
         var result = alertService.evaluateAndRecord(rule);
         assertNotNull(result);
@@ -353,5 +365,43 @@ class AlertServiceTest {
 
         var result = alertService.evaluateAndRecord(rule);
         assertNull(result);
+    }
+
+    @Test
+    @DisplayName("evaluateAndRecord leaves sent=false when email fails")
+    void evaluateAndRecord_emailFails_staysUnsent() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset",
+                "{\"glow_probability\":60}", LocalTime.of(12, 0));
+        rule.setId(1L);
+
+        var glow = new GlowForecast("sunset", 75, "good", null);
+        var dashboard = new WeatherDashboard(1L, "Test", 85, "excellent", null, null, glow, List.of());
+        when(weatherService.getDashboard(spot)).thenReturn(dashboard);
+        when(notificationService.sendAlert(any(), any(), anyInt(), anyString())).thenReturn(false);
+
+        var result = alertService.evaluateAndRecord(rule);
+        assertNotNull(result);
+        assertFalse(result.isSent());
+        verify(alertHistoryRepository, times(1)).save(any());
+    }
+
+    @Test
+    @DisplayName("create persists recipientEmail")
+    void create_withEmail_persistsEmail() {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        when(spotRepository.findById(1L)).thenReturn(Optional.of(spot));
+
+        var saved = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
+        when(alertRuleRepository.save(any())).thenReturn(saved);
+
+        var request = new AlertRuleRequest("sunset", 60, null, null, null, null, null, "12:00", "user@example.com");
+        alertService.create(1L, request);
+
+        ArgumentCaptor<AlertRule> captor = ArgumentCaptor.forClass(AlertRule.class);
+        verify(alertRuleRepository).save(captor.capture());
+        assertEquals("user@example.com", captor.getValue().getRecipientEmail());
     }
 }

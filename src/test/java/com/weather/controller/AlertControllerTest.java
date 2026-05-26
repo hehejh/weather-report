@@ -184,6 +184,31 @@ class AlertControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/spots/{spotId}/alerts with recipientEmail creates alert")
+    void createAlert_withEmail_returns201() throws Exception {
+        var spot = new PhotoSpot("user", "Test", GF.createPoint(new Coordinate(116.4, 39.9)), null);
+        spot.setId(1L);
+        var rule = new AlertRule(spot, "sunset", "{}", LocalTime.of(12, 0));
+        when(alertService.create(eq(1L), any(AlertRuleRequest.class))).thenReturn(rule);
+
+        mockMvc.perform(post("/api/spots/1/alerts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"alertType":"sunset","glowProbability":60,"pushTime":"12:00","recipientEmail":"user@example.com"}"""))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("POST /api/spots/{spotId}/alerts with invalid email returns 400")
+    void createAlert_invalidEmail_returns400() throws Exception {
+        mockMvc.perform(post("/api/spots/1/alerts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"alertType":"sunset","glowProbability":60,"pushTime":"12:00","recipientEmail":"not-an-email"}"""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("POST /api/alerts/{id}/test returns 404 for unknown alert")
     void testTrigger_notFound_returns404() throws Exception {
         when(alertService.getById(99L)).thenThrow(new SpotNotFoundException(99L));

@@ -36,6 +36,9 @@ public class AlertRule {
     @Column(name = "push_time", nullable = false)
     private LocalTime pushTime;
 
+    @Column(name = "recipient_email", length = 255)
+    private String recipientEmail;
+
     @Column(nullable = false)
     private boolean enabled = true;
 
@@ -67,6 +70,9 @@ public class AlertRule {
 
     public LocalTime getPushTime() { return pushTime; }
     public void setPushTime(LocalTime pushTime) { this.pushTime = pushTime; }
+
+    public String getRecipientEmail() { return recipientEmail; }
+    public void setRecipientEmail(String recipientEmail) { this.recipientEmail = recipientEmail; }
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }

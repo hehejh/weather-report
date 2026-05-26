@@ -48,6 +48,7 @@ public class AlertService {
                 .orElseThrow(() -> new SpotNotFoundException(spotId));
         var rule = new AlertRule(spot, request.alertType(),
                 request.toThresholdsJson(), LocalTime.parse(request.pushTime()));
+        rule.setRecipientEmail(request.recipientEmail());
         return alertRuleRepository.save(rule);
     }
 
@@ -62,6 +63,7 @@ public class AlertService {
         rule.setAlertType(request.alertType());
         rule.setThresholds(request.toThresholdsJson());
         rule.setPushTime(LocalTime.parse(request.pushTime()));
+        rule.setRecipientEmail(request.recipientEmail());
         return alertRuleRepository.save(rule);
     }
 
@@ -109,10 +111,15 @@ public class AlertService {
 
         String summary = String.format("📍 %s 可能有高质量%s（概率 %d%%），综合指数 %d",
                 spot.getName(), rule.getAlertType(), glowProbability, dashboard.photographyIndex());
-        notificationService.buildPayload(rule, spot, dashboard.photographyIndex(), summary);
 
-        log.info("Alert triggered: rule={} spot={} type={} probability={}",
-                rule.getId(), spot.getName(), rule.getAlertType(), glowProbability);
+        boolean emailSent = notificationService.sendAlert(rule, spot, dashboard.photographyIndex(), summary);
+        if (emailSent) {
+            history.setSent(true);
+            alertHistoryRepository.save(history);
+        }
+
+        log.info("Alert triggered: rule={} spot={} type={} probability={} emailSent={}",
+                rule.getId(), spot.getName(), rule.getAlertType(), glowProbability, emailSent);
         return history;
     }
 
